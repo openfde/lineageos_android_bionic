@@ -349,6 +349,8 @@ int     cacheflush:__ARM_NR_cacheflush(long start, long end, long flags)  arm
 
 # x86-specific
 int     __set_thread_area:set_thread_area(void*) x86
+int    ioperm(unsigned long, unsigned long, int) x86,x86_64
+int    iopl(int) x86,x86_64
 
 # vdso stuff.
 int __clock_getres:clock_getres(clockid_t, struct timespec*) all
