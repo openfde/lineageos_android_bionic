@@ -3340,7 +3340,6 @@ bool soinfo::link_image(const SymbolLookupList& lookup_list, soinfo* local_group
                      "Enforced-for-API-level-23)", get_realpath());
       return false;
     }
-#endif
     // Make segments writable to allow text relocations to work properly. We will later call
     // phdr_table_protect_segments() after all of them are applied.
     DL_WARN_documented_change(23,
@@ -3348,6 +3347,7 @@ bool soinfo::link_image(const SymbolLookupList& lookup_list, soinfo* local_group
                               "\"%s\" has text relocations",
                               get_realpath());
     add_dlwarning(get_realpath(), "text relocations");
+#endif
     if (phdr_table_unprotect_segments(phdr, phnum, load_bias) < 0) {
       DL_ERR("can't unprotect loadable segments for \"%s\": %s", get_realpath(), strerror(errno));
       return false;
