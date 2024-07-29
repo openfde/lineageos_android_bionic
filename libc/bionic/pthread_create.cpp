@@ -47,6 +47,7 @@
 #include "private/bionic_systrace.h"
 #include "private/bionic_tls.h"
 #include "private/ErrnoRestorer.h"
+#include <sys/system_properties.h>
 
 // x86 uses segment descriptors rather than a direct pointer to TLS.
 #if defined(__i386__)
@@ -182,7 +183,11 @@ int __init_thread(pthread_internal_t* thread) {
                             param.sched_priority, strerror(errno));
 #if defined(__LP64__)
       // For backwards compatibility reasons, we only report failures on 64-bit devices.
-      return errno;
+      char prop_value[16];
+      __system_property_get("fde.fake_bt", prop_value);
+      if (strcmp(prop_value, "1")) {
+          return errno;
+      }
 #endif
     }
   }
