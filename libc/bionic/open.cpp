@@ -58,7 +58,7 @@ int creat(const char* pathname, mode_t mode) {
 __strong_alias(creat64, creat);
 
 
-static bool is_proc_pid_attr_current(const char* pathname) {
+/*static bool is_proc_pid_attr_current(const char* pathname) {
     if (pathname == nullptr) return false;
 
     static const char* kPrefix = "/proc/";
@@ -85,6 +85,7 @@ static bool is_proc_pid_attr_current(const char* pathname) {
     return true;
 }
 
+*/
 extern "C" void __register_selinux_fd(int fd, int is_mounts);
 
 int open(const char* pathname, int flags, ...) {
@@ -101,8 +102,8 @@ int open(const char* pathname, int flags, ...) {
     if (result > 0 &&  pathname != nullptr){
         if (strcmp(pathname, "/proc/mounts") == 0 ) 
             __register_selinux_fd(result, 1);
-        else if (is_proc_pid_attr_current(pathname))
-            __register_selinux_fd(result, 2);
+        //else if (is_proc_pid_attr_current(pathname))
+         //   __register_selinux_fd(result, 2);
     }
     return result;
 }
@@ -123,15 +124,7 @@ int openat(int fd, const char *pathname, int flags, ...) {
     mode = static_cast<mode_t>(va_arg(args, int));
     va_end(args);
   }
-
-  int result =  FDTRACK_CREATE_NAME("openat", __openat(fd, pathname, force_O_LARGEFILE(flags), mode));
-    if (result > 0 &&  pathname != nullptr){
-        if (strcmp(pathname, "/proc/mounts") == 0 ) 
-            __register_selinux_fd(result, 1);
-        else if (is_proc_pid_attr_current(pathname))
-            __register_selinux_fd(result, 2);
-    }
-    return result;
+  return FDTRACK_CREATE_NAME("openat", __openat(fd, pathname, force_O_LARGEFILE(flags), mode));
 }
 __strong_alias(openat64, openat);
 
