@@ -110,6 +110,12 @@ static char* filter_mounts_primitive(const char* src, size_t src_len, size_t* ou
             found = memmem(line_start, current_line_len, "vendor", 6);
         if (!found)
             found = memmem(line_start, current_line_len, "volumes", 7);
+        if (!found)
+            found = memmem(line_start, current_line_len, "tmpx11", 6);
+        if (!found)
+            found = memmem(line_start, current_line_len, "card0", 5);
+        if (!found)
+            found = memmem(line_start, current_line_len, "renderD128", 10);
 
         if (!found) {
             // 如果没找到关键字，将整行拷贝到目标缓冲区
