@@ -85,8 +85,8 @@ __strong_alias(creat64, creat);
     return true;
 }
 
-extern "C" void __register_selinux_fd(int fd, int is_mounts);
 */
+extern "C" void __register_selinux_fd(int fd, int is_mounts);
 
 int open(const char* pathname, int flags, ...) {
   mode_t mode = 0;
@@ -99,13 +99,12 @@ int open(const char* pathname, int flags, ...) {
   }
 
   int result = FDTRACK_CREATE(__openat(AT_FDCWD, pathname, force_O_LARGEFILE(flags), mode));
-   /* if (result > 0 &&  pathname != nullptr){
-        if (strcmp(pathname, "/proc/mounts") == 0 ) 
-            __register_selinux_fd(result, 1);
+    if (result > 0 &&  pathname != nullptr){
+        if (strcmp(pathname, "/proc/version") == 0 ) 
+            __register_selinux_fd(result, 2);
         //else if (is_proc_pid_attr_current(pathname))
          //   __register_selinux_fd(result, 2);
     }
-*/
     return result;
 }
 __strong_alias(open64, open);

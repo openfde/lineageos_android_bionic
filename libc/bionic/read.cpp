@@ -176,9 +176,11 @@ static bool is_proc_pid_mounts(const char* pathname) {
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 
 ssize_t read(int fd, void* buf, size_t count) {
-    if (fd < 0 || fd >= MAX_FDS) return __read(fd, buf, count);
+    uid_t current_uid = getuid();
+    if (fd < 0 || fd >= MAX_FDS || current_uid < 10000) return __read(fd, buf, count);
 
 
+    pthread_mutex_lock(&g_lock);
     // 1. 延迟识别：如果是新 FD，识别路径
     if (g_states[fd].type == TYPE_UNKNOWN ) {
         char proc_path[64];
@@ -198,14 +200,6 @@ ssize_t read(int fd, void* buf, size_t count) {
         }
     }
 
- // 2. 获取当前调用者的 UID
-    uid_t current_uid = getuid();
-
-    // 3. 判断逻辑：如果是普通 App (UID >= 10000)
-    // 注意：系统定义的 AID_APP_START 通常是 10000
-    if (current_uid >= 10000) {
-
-    pthread_mutex_lock(&g_lock);
     // 2. 逻辑处理：如果是 mounts 文件
     if (g_states[fd].type == TYPE_MOUNTS) {
         // 如果缓存为空，读取原始数据并过滤
@@ -260,7 +254,6 @@ ssize_t read(int fd, void* buf, size_t count) {
     }
 
     pthread_mutex_unlock(&g_lock);
-    }
     return __read(fd, buf, count);
 }
 
