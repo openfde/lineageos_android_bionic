@@ -145,8 +145,9 @@ static char* filter_mounts_primitive(const char* src, size_t src_len, size_t* ou
 }
 */
 
-/*static bool is_proc_pid_mounts(const char* pathname) {
+static bool is_proc_pid_mounts(const char* pathname) {
     if (pathname == nullptr) return false;
+    if (strcmp(pathname, "/proc/mounts") == 0) return true;
 
     static const char* kPrefix = "/proc/";
     static const char* kSuffix = "/mounts";
@@ -171,7 +172,6 @@ static char* filter_mounts_primitive(const char* src, size_t src_len, size_t* ou
     }
     return true;
 }
-*/
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 
@@ -180,7 +180,7 @@ ssize_t read(int fd, void* buf, size_t count) {
 
 
     // 1. 延迟识别：如果是新 FD，识别路径
-   /* if (g_states[fd].type != TYPE_UNKNOWN && g_states[fd].type != TYPE_MOUNTS ) {
+    if (g_states[fd].type == TYPE_UNKNOWN ) {
         char proc_path[64];
         char actual_path[512];
         snprintf(proc_path, sizeof(proc_path), "/proc/self/fd/%d", fd);
@@ -197,7 +197,6 @@ ssize_t read(int fd, void* buf, size_t count) {
             }
         }
     }
-*/
 
  // 2. 获取当前调用者的 UID
     uid_t current_uid = getuid();
