@@ -58,34 +58,6 @@ int creat(const char* pathname, mode_t mode) {
 __strong_alias(creat64, creat);
 
 
-/*static bool is_proc_pid_attr_current(const char* pathname) {
-    if (pathname == nullptr) return false;
-
-    static const char* kPrefix = "/proc/";
-    static const char* kSuffix = "/attr/current";
-
-    size_t prefix_len = strlen(kPrefix);
-    size_t suffix_len = strlen(kSuffix);
-    size_t path_len = strlen(pathname);
-
-    if (path_len <= prefix_len + suffix_len) return false;
-    if (strncmp(pathname, kPrefix, prefix_len) != 0) return false;
-    if (strcmp(pathname, "/proc/self/attr/current") == 0) return true;
-    if (strcmp(pathname + path_len - suffix_len, kSuffix) != 0) return false;
-
-    const char* p = pathname + prefix_len;
-    const char* end = pathname + path_len - suffix_len;
-
-    if (p >= end) return false;
-
-    while (p < end) {
-        if (!isdigit(static_cast<unsigned char>(*p))) return false;
-        ++p;
-    }
-    return true;
-}
-
-*/
 extern "C" void __register_selinux_fd(int fd, int is_mounts);
 
 int open(const char* pathname, int flags, ...) {
@@ -99,19 +71,22 @@ int open(const char* pathname, int flags, ...) {
   }
 
   int result = FDTRACK_CREATE(__openat(AT_FDCWD, pathname, force_O_LARGEFILE(flags), mode));
-    if (result > 0 &&  pathname != nullptr){
-        if (strcmp(pathname, "/proc/version") == 0 ) 
-            __register_selinux_fd(result, 2);
-        //else if (is_proc_pid_attr_current(pathname))
-         //   __register_selinux_fd(result, 2);
-    }
-    return result;
+  uid_t current_uid = getuid();
+  if (current_uid >= 10000 && result > 0){
+    __register_selinux_fd(result, 0);
+  }
+  return result;
 }
 __strong_alias(open64, open);
 
 int __open_2(const char* pathname, int flags) {
   if (needs_mode(flags)) __fortify_fatal("open: called with O_CREAT/O_TMPFILE but no mode");
-  return FDTRACK_CREATE_NAME("open", __openat(AT_FDCWD, pathname, force_O_LARGEFILE(flags), 0));
+  int result = FDTRACK_CREATE_NAME("open", __openat(AT_FDCWD, pathname, force_O_LARGEFILE(flags), 0));
+  uid_t current_uid = getuid();
+  if (current_uid >= 10000 && result > 0){
+    __register_selinux_fd(result, 0);
+  }
+  return result; 
 }
 
 
@@ -124,11 +99,21 @@ int openat(int fd, const char *pathname, int flags, ...) {
     mode = static_cast<mode_t>(va_arg(args, int));
     va_end(args);
   }
-  return FDTRACK_CREATE_NAME("openat", __openat(fd, pathname, force_O_LARGEFILE(flags), mode));
+  int result = FDTRACK_CREATE_NAME("openat", __openat(fd, pathname, force_O_LARGEFILE(flags), mode));
+  uid_t current_uid = getuid();
+  if (current_uid >= 10000 && result > 0){
+    __register_selinux_fd(result, 0);
+  }
+  return result; 
 }
 __strong_alias(openat64, openat);
 
 int __openat_2(int fd, const char* pathname, int flags) {
   if (needs_mode(flags)) __fortify_fatal("open: called with O_CREAT/O_TMPFILE but no mode");
-  return FDTRACK_CREATE_NAME("openat", __openat(fd, pathname, force_O_LARGEFILE(flags), 0));
+  int result = FDTRACK_CREATE_NAME("openat", __openat(fd, pathname, force_O_LARGEFILE(flags), 0));
+  uid_t current_uid = getuid();
+  if (current_uid >= 10000 && result > 0){
+    __register_selinux_fd(result, 0);
+  }
+  return result;
 }
