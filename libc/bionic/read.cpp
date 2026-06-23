@@ -17,15 +17,17 @@
 
 #define TYPE_UNKNOWN 0
 #define TYPE_MOUNTS  1
-#define TYPE_IGNORE  2 // 已检查过，不是我们要的文件
+#define TYPE_SELINUX_ATTR  2
+#define TYPE_IGNORE  4 // 已检查过，不是我们要的文件
+#define APP_UID_START 10000
 
 #define MAX_FDS 2048
 
 struct FDState {
-    int type;
-    size_t index;
-    char* cached_data;
-    size_t cached_len;
+    int type = TYPE_UNKNOWN;
+    size_t index = 0 ;
+    char* cached_data = NULL;
+    size_t cached_len = 0;
 };
 
 FDState g_states[MAX_FDS];
@@ -35,17 +37,36 @@ pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 extern "C" ssize_t __read(int fd, void* buf, size_t count);
 
 
-static const char* FAKE_MOUNTS = "selinuxfs /sys/fs/selinux selinuxfs rw,relatime 0 0\n";
-static const char* FAKE_CONTEXT = "u:r:untrusted_app:s0\n";
+static const char* FAKE_SELINUX_MOUNTS = "selinuxfs /sys/fs/selinux selinuxfs rw,relatime 0 0\n";
+static const char* FAKE_SELINUX_CONTEXT = "u:r:untrusted_app:s0\n";
 
-/*typedef struct {
-    int type; // 1: mounts, 2: enforce, 3: context
-    size_t index; 
-} HookState;
+static bool is_proc_pid_attr_current(const char* pathname) {
+    if (pathname == nullptr) return false;
 
-static HookState g_states[MAX_FDS];
-static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
-*/
+    static const char* kPrefix = "/proc/";
+    static const char* kSuffix = "/attr/current";
+
+    size_t prefix_len = strlen(kPrefix);
+    size_t suffix_len = strlen(kSuffix);
+    size_t path_len = strlen(pathname);
+
+    if (path_len <= prefix_len + suffix_len) return false;
+    if (strncmp(pathname, kPrefix, prefix_len) != 0) return false;
+    if (strcmp(pathname, "/proc/self/attr/current") == 0) return true;
+    if (strcmp(pathname + path_len - suffix_len, kSuffix) != 0) return false;
+
+    const char* p = pathname + prefix_len;
+    const char* end = pathname + path_len - suffix_len;
+
+    if (p >= end) return false;
+
+    while (p < end) {
+        if (!isdigit(static_cast<unsigned char>(*p))) return false;
+        ++p;
+    }
+    return true;
+}
+
 
 extern "C" void __register_selinux_fd(int fd, int type) {
     if (fd >= 0 && fd < MAX_FDS) {
@@ -59,11 +80,6 @@ extern "C" void __register_selinux_fd(int fd, int type) {
 
 extern "C" void __unregister_selinux_fd(int fd) {
     if (fd >= 0 && fd < MAX_FDS) {
-      /*  pthread_mutex_lock(&g_lock);
-        g_states[fd].type = 0;
-        g_states[fd].index = 0;
-        pthread_mutex_unlock(&g_lock);
-        */
         pthread_mutex_lock(&g_lock);
         if (g_states[fd].cached_data) {
             free(g_states[fd].cached_data);
@@ -71,14 +87,15 @@ extern "C" void __unregister_selinux_fd(int fd) {
         }
         g_states[fd].type = TYPE_UNKNOWN; // 重置类型
         g_states[fd].index = 0;           // 重置偏移
+        g_states[fd].cached_len = 0;           // 重置偏移
         pthread_mutex_unlock(&g_lock);
     }
 }
 
 // 过滤函数：从 src 中剔除包含 "fde_fs" 的行
-static char* filter_mounts_primitive(const char* src, size_t src_len, size_t* out_len) {
+static char* filter_suppliment_mounts_primitive(const char* src, size_t src_len, size_t* out_len) {
     // 预分配一个同样大小的缓冲区，最坏情况是没有任何行被过滤
-    char* dst = static_cast<char*>(malloc(src_len + 1));
+    char* dst = static_cast<char*>(malloc(src_len +strlen(FAKE_SELINUX_MOUNTS) + 1));
     if (!dst) return NULL;
 
     size_t dst_idx = 0;
@@ -126,6 +143,8 @@ static char* filter_mounts_primitive(const char* src, size_t src_len, size_t* ou
         if (!line_end) break;
         line_start = line_end + 1;
     }
+    memcpy(dst + dst_idx, FAKE_SELINUX_MOUNTS, strlen(FAKE_SELINUX_MOUNTS));
+    dst_idx += strlen(FAKE_SELINUX_MOUNTS);
 
     dst[dst_idx] = '\0';
     *out_len = dst_idx;
@@ -135,15 +154,6 @@ static char* filter_mounts_primitive(const char* src, size_t src_len, size_t* ou
     return shrunk_dst ? shrunk_dst : dst;
 }
 
-
-/*static inline const char* get_fake_data_for_type(int type) {
-  switch (type) {
-    case 1: return FAKE_MOUNTS;
-    case 2: return FAKE_CONTEXT;
-    default: return nullptr;
-  }
-}
-*/
 
 static bool is_proc_pid_mounts(const char* pathname) {
     if (pathname == nullptr) return false;
@@ -177,8 +187,7 @@ __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 
 ssize_t read(int fd, void* buf, size_t count) {
     uid_t current_uid = getuid();
-    if (fd < 0 || fd >= MAX_FDS || current_uid < 10000) return __read(fd, buf, count);
-
+    if (fd < 0 || fd >= MAX_FDS || current_uid < APP_UID_START) return __read(fd, buf, count);
 
     pthread_mutex_lock(&g_lock);
     // 1. 延迟识别：如果是新 FD，识别路径
@@ -192,16 +201,21 @@ ssize_t read(int fd, void* buf, size_t count) {
             actual_path[path_len] = '\0';
             if ( is_proc_pid_mounts(actual_path)) {
                 g_states[fd].type = TYPE_MOUNTS;
-                g_states[fd].index = 0;
-                g_states[fd].cached_data = NULL;
-            } else {
-                g_states[fd].type = TYPE_IGNORE;
+            } else if (is_proc_pid_attr_current(actual_path)) {
+                g_states[fd].type = TYPE_SELINUX_ATTR;
             }
+        }else {
+            g_states[fd].type = TYPE_IGNORE;
         }
     }
-
+    if (g_states[fd].type == TYPE_SELINUX_ATTR){
+        const size_t fake_len = strlen(FAKE_SELINUX_CONTEXT);
+        char* buf = static_cast<char*>(malloc(fake_len + 1));
+        memcpy(buf, FAKE_SELINUX_CONTEXT, fake_len);
+        g_states[fd].cached_data = buf;
+        g_states[fd].cached_len = fake_len;
     // 2. 逻辑处理：如果是 mounts 文件
-    if (g_states[fd].type == TYPE_MOUNTS) {
+    }else if (g_states[fd].type == TYPE_MOUNTS) {
         // 如果缓存为空，读取原始数据并过滤
         if (g_states[fd].cached_data == NULL) {
             const int buffer_size = 128 * 1024;
@@ -228,7 +242,7 @@ ssize_t read(int fd, void* buf, size_t count) {
 
             buffer[offset+1] = '\0';
             if (offset > 0) {
-                g_states[fd].cached_data = filter_mounts_primitive(buffer, offset+1, &g_states[fd].cached_len);
+                g_states[fd].cached_data = filter_suppliment_mounts_primitive(buffer, offset+1, &g_states[fd].cached_len);
             }
             free(buffer);
             buffer = NULL;
@@ -257,43 +271,3 @@ ssize_t read(int fd, void* buf, size_t count) {
     return __read(fd, buf, count);
 }
 
-/*ssize_t read(int fd, void* buf, size_t count) {
-    if (count == 0) {
-    return __read(fd, buf, count);
-  }
-
-  if (fd >= 0 && fd < MAX_FDS) {
-    pthread_mutex_lock(&g_lock);
-
-    int type = g_states[fd].type;
-    size_t index = g_states[fd].index;
-
-    if (type > 0) {
-      const char* fake = get_fake_data_for_type(type);
-      if (fake != nullptr) {
-        size_t total_len = strlen(fake);
-
-        if (index < total_len) {
-          size_t remaining = total_len - index;
-          size_t n = (count < remaining) ? count : remaining;
-          memcpy(buf, fake + index, n);
-          g_states[fd].index += n;
-          pthread_mutex_unlock(&g_lock);
-          return static_cast<ssize_t>(n);
-        }
-
-        pthread_mutex_unlock(&g_lock);
-        if (strlen(fake) == strlen(FAKE_MOUNTS)){
-            return __read(fd, buf, count);
-        }else {
-            return 0;
-        }
-      }
-    }
-
-    pthread_mutex_unlock(&g_lock);
-  }
-
-  return __read(fd, buf, count);
-}
-*/
