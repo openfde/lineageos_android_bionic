@@ -18,7 +18,8 @@
 #define TYPE_UNKNOWN 0
 #define TYPE_MOUNTS  1
 #define TYPE_SELINUX_ATTR  2
-#define TYPE_IGNORE  4 // 已检查过，不是我们要的文件
+#define TYPE_IGNORE  4 
+
 #define APP_UID_START 10000
 
 #define MAX_FDS 2048
@@ -85,16 +86,14 @@ extern "C" void __unregister_selinux_fd(int fd) {
             free(g_states[fd].cached_data);
             g_states[fd].cached_data = nullptr;
         }
-        g_states[fd].type = TYPE_UNKNOWN; // 重置类型
-        g_states[fd].index = 0;           // 重置偏移
-        g_states[fd].cached_len = 0;           // 重置偏移
+        g_states[fd].type = TYPE_UNKNOWN; 
+        g_states[fd].index = 0;           
+        g_states[fd].cached_len = 0;           
         pthread_mutex_unlock(&g_lock);
     }
 }
 
-// 过滤函数：从 src 中剔除包含 "fde_fs" 的行
 static char* filter_suppliment_mounts_primitive(const char* src, size_t src_len, size_t* out_len) {
-    // 预分配一个同样大小的缓冲区，最坏情况是没有任何行被过滤
     char* dst = static_cast<char*>(malloc(src_len +strlen(FAKE_SELINUX_MOUNTS) + 1));
     if (!dst) return NULL;
 
@@ -103,17 +102,15 @@ static char* filter_suppliment_mounts_primitive(const char* src, size_t src_len,
     const char* src_end = src + src_len;
 
     while (line_start < src_end) {
-        // 找到当前行的结束位置
+        // find the end of the line
         const char* line_end = static_cast<const char*>(memchr(line_start, '\n', src_end - line_start));
         size_t current_line_len;
         if (line_end) {
-            current_line_len = line_end - line_start + 1; // 包含换行符
+            current_line_len = line_end - line_start + 1; 
         } else {
-            current_line_len = src_end - line_start;     // 最后一行没有换行符
+            current_line_len = src_end - line_start;    // there is no /n in the last line 
         }
 
-        // 检查当前行是否包含关键字 "fde_fs"
-        // 使用 memmem 在指定长度内搜索子串（比 strstr 安全，因为 line_start 未必以 \0 结尾）
         void* found = memmem(line_start, current_line_len, "fde_fs", 6);
         if (!found)
             found = memmem(line_start, current_line_len, "fde_ptfs", 8);
@@ -135,7 +132,6 @@ static char* filter_suppliment_mounts_primitive(const char* src, size_t src_len,
             found = memmem(line_start, current_line_len, "renderD128", 10);
 
         if (!found) {
-            // 如果没找到关键字，将整行拷贝到目标缓冲区
             memcpy(dst + dst_idx, line_start, current_line_len);
             dst_idx += current_line_len;
         }
@@ -149,7 +145,6 @@ static char* filter_suppliment_mounts_primitive(const char* src, size_t src_len,
     dst[dst_idx] = '\0';
     *out_len = dst_idx;
     
-    // 缩小内存占用（可选）
     char* shrunk_dst = static_cast<char*>(realloc(dst, dst_idx + 1));
     return shrunk_dst ? shrunk_dst : dst;
 }
@@ -190,7 +185,6 @@ ssize_t read(int fd, void* buf, size_t count) {
     if (fd < 0 || fd >= MAX_FDS || current_uid < APP_UID_START) return __read(fd, buf, count);
 
     pthread_mutex_lock(&g_lock);
-    // 1. 延迟识别：如果是新 FD，识别路径
     if (g_states[fd].type == TYPE_UNKNOWN ) {
         char proc_path[64];
         char actual_path[512];
@@ -212,16 +206,13 @@ ssize_t read(int fd, void* buf, size_t count) {
         const size_t fake_len = strlen(FAKE_SELINUX_CONTEXT);
         char* buf = static_cast<char*>(malloc(fake_len + 1));
         memcpy(buf, FAKE_SELINUX_CONTEXT, fake_len);
+        buf[fake_len] = '\0';
         g_states[fd].cached_data = buf;
         g_states[fd].cached_len = fake_len;
-    // 2. 逻辑处理：如果是 mounts 文件
     }else if (g_states[fd].type == TYPE_MOUNTS) {
-        // 如果缓存为空，读取原始数据并过滤
         if (g_states[fd].cached_data == NULL) {
             const int buffer_size = 128 * 1024;
-            char* buffer = static_cast<char*>(malloc(buffer_size)); // 假设 mounts 最大 128KB
-            // 使用 pread 确保从头开始读，且不干扰 fd 的当前偏移
-
+            char* buffer = static_cast<char*>(malloc(buffer_size)); 
             size_t offset = 0;
             ssize_t bytes_read;
 
@@ -232,9 +223,8 @@ ssize_t read(int fd, void* buf, size_t count) {
                     pthread_mutex_unlock(&g_lock);
                     return 0;
                 }
-
                 if (bytes_read == 0) {
-                    break;  // 读完
+                    break; 
                 }
 
                 offset += bytes_read;
@@ -247,24 +237,23 @@ ssize_t read(int fd, void* buf, size_t count) {
             free(buffer);
             buffer = NULL;
         }
+    }
+    if (g_states[fd].cached_data) {
+        size_t total = g_states[fd].cached_len;
+        size_t curr = g_states[fd].index;
 
-        if (g_states[fd].cached_data) {
-            size_t total = g_states[fd].cached_len;
-            size_t curr = g_states[fd].index;
-
-            if (curr >= total) {
-                pthread_mutex_unlock(&g_lock);
-                return 0; // EOF
-            }
-
-            size_t avail = total - curr;
-            size_t to_copy = (count < avail) ? count : avail;
-            memcpy(buf, g_states[fd].cached_data + curr, to_copy);
-            g_states[fd].index += to_copy;
-
+        if (curr >= total) {
             pthread_mutex_unlock(&g_lock);
-            return static_cast<ssize_t>(to_copy);
+            return 0; 
         }
+
+        size_t avail = total - curr;
+        size_t to_copy = (count < avail) ? count : avail;
+        memcpy(buf, g_states[fd].cached_data + curr, to_copy);
+        g_states[fd].index += to_copy;
+
+        pthread_mutex_unlock(&g_lock);
+        return static_cast<ssize_t>(to_copy);
     }
 
     pthread_mutex_unlock(&g_lock);
