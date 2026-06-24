@@ -62,6 +62,11 @@ extern "C" void __register_selinux_fd(int fd, int is_mounts);
 
 int open(const char* pathname, int flags, ...) {
   mode_t mode = 0;
+  uid_t current_uid = getuid();
+  if (pathname != nullptr && strcmp(pathname, "/proc/version") == 0) {
+    errno = EACCES; 
+    return -1; 
+  }
 
   if (needs_mode(flags)) {
     va_list args;
@@ -71,7 +76,6 @@ int open(const char* pathname, int flags, ...) {
   }
 
   int result = FDTRACK_CREATE(__openat(AT_FDCWD, pathname, force_O_LARGEFILE(flags), mode));
-  uid_t current_uid = getuid();
   if (current_uid >= 10000 && result > 0){
     __register_selinux_fd(result, 0);
   }
@@ -80,9 +84,13 @@ int open(const char* pathname, int flags, ...) {
 __strong_alias(open64, open);
 
 int __open_2(const char* pathname, int flags) {
+  uid_t current_uid = getuid();
+  if (pathname != nullptr && strcmp(pathname, "/proc/version") == 0) {
+    errno = EACCES; 
+    return -1; 
+  }
   if (needs_mode(flags)) __fortify_fatal("open: called with O_CREAT/O_TMPFILE but no mode");
   int result = FDTRACK_CREATE_NAME("open", __openat(AT_FDCWD, pathname, force_O_LARGEFILE(flags), 0));
-  uid_t current_uid = getuid();
   if (current_uid >= 10000 && result > 0){
     __register_selinux_fd(result, 0);
   }
@@ -92,7 +100,11 @@ int __open_2(const char* pathname, int flags) {
 
 int openat(int fd, const char *pathname, int flags, ...) {
   mode_t mode = 0;
-
+  uid_t current_uid = getuid();
+  if (pathname != nullptr && strcmp(pathname, "/proc/version") == 0) {
+    errno = EACCES; 
+    return -1; 
+  }
   if (needs_mode(flags)) {
     va_list args;
     va_start(args, flags);
@@ -100,7 +112,6 @@ int openat(int fd, const char *pathname, int flags, ...) {
     va_end(args);
   }
   int result = FDTRACK_CREATE_NAME("openat", __openat(fd, pathname, force_O_LARGEFILE(flags), mode));
-  uid_t current_uid = getuid();
   if (current_uid >= 10000 && result > 0){
     __register_selinux_fd(result, 0);
   }
@@ -109,9 +120,13 @@ int openat(int fd, const char *pathname, int flags, ...) {
 __strong_alias(openat64, openat);
 
 int __openat_2(int fd, const char* pathname, int flags) {
+  uid_t current_uid = getuid();
+  if (pathname != nullptr && strcmp(pathname, "/proc/version") == 0) {
+    errno = EACCES; 
+    return -1; 
+  }
   if (needs_mode(flags)) __fortify_fatal("open: called with O_CREAT/O_TMPFILE but no mode");
   int result = FDTRACK_CREATE_NAME("openat", __openat(fd, pathname, force_O_LARGEFILE(flags), 0));
-  uid_t current_uid = getuid();
   if (current_uid >= 10000 && result > 0){
     __register_selinux_fd(result, 0);
   }
